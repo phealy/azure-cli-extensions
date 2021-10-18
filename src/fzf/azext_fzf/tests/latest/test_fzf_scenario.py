@@ -15,8 +15,9 @@ from unittest import mock
 from azure_devtools.scenario_tests import AllowLargeResponse
 from azure.cli.testsdk import ScenarioTest, ResourceGroupPreparer
 from azure.cli.core.mock import DummyCli
+from azure.cli.core.azclierror import AzCLIError
 
-from knack.util import CLIError
+#from knack.util import CLIError
 
 TEST_DIR = os.path.abspath(os.path.join(os.path.abspath(__file__), '..'))
 
@@ -33,12 +34,20 @@ class FzfScenarioTest(ScenarioTest):
     Azure-cli fzf module test suite
     """
 
+    def setUp(self):
+        """
+        Install fzf if it's not present
+        """
+        self.cmd('fzf install --if-needed')
+
     @AllowLargeResponse()
     def test_fzf_install(self):
         """
         Test if fzf install works.
         """
-        self.cmd('fzf install')
+        install_dir = tempfile.mkdtemp()
+        self.cmd(f'fzf install -i {install_dir}')
+        shutil.rmtree(install_dir)
 
     @AllowLargeResponse()
     @mock.patch('azext_fzf.custom._fzf_get_system', autospec=True)
@@ -77,8 +86,10 @@ class FzfScenarioTest(ScenarioTest):
         """
         Verify fzf install fails with a bad version.
         """
-        with self.assertRaises(CLIError):
-            self.cmd('fzf install --version 999.999.999')
+        install_dir = tempfile.mkdtemp()
+        with self.assertRaises(AzCLIError):
+            self.cmd(f'fzf install -i {install_dir} --version 999.999.999')
+        shutil.rmtree(install_dir)
 
     @AllowLargeResponse()
     @mock.patch('azext_fzf.custom._fzf_get_system', autospec=True)
@@ -87,8 +98,10 @@ class FzfScenarioTest(ScenarioTest):
         Verify fzf install fails with an unsupported system.
         """
         fzf_get_system_mock.return_value = "PDP-8"
-        with self.assertRaises(CLIError):
-            self.cmd('fzf install')
+        install_dir = tempfile.mkdtemp()
+        with self.assertRaises(AzCLIError):
+            self.cmd(f'fzf install -i {install_dir}')
+        shutil.rmtree(install_dir)
 
     @AllowLargeResponse()
     @mock.patch('requests.get', autospec=True)
@@ -97,8 +110,10 @@ class FzfScenarioTest(ScenarioTest):
         Validate we trap the errors from requests.get.
         """
         urlopen_mock.side_effect = OSError
-        with self.assertRaises(CLIError):
-            self.cmd('fzf install')
+        install_dir = tempfile.mkdtemp()
+        with self.assertRaises(AzCLIError):
+            self.cmd(f'fzf install -i {install_dir}')
+        shutil.rmtree(install_dir)
 
     @AllowLargeResponse()
     @mock.patch('requests.get', autospec=True)
@@ -129,8 +144,10 @@ class FzfScenarioTest(ScenarioTest):
             }
         ]
         urlopen_mock.side_effect = (fake_first_response, OSError)
-        with self.assertRaises(CLIError, msg='Should have received a CLIError.'):
-            self.cmd('fzf install')
+        install_dir = tempfile.mkdtemp()
+        with self.assertRaises(AzCLIError, msg='Should have received a CLIError.'):
+            self.cmd(f'fzf install -i {install_dir}')
+        shutil.rmtree(install_dir)
 
     @mock.patch('shutil.which', autospec=True)
     def test_fzf_fzf_not_found(self, shutil_which_mock):
@@ -138,9 +155,9 @@ class FzfScenarioTest(ScenarioTest):
         Test error handling when fzf isn't found.
         """
         shutil_which_mock.return_value = None
-        with self.assertRaises(CLIError):
+        with self.assertRaises(AssertionError):
             self.cmd('fzf location --filter=eastus')
-
+        
     def test_fzf_location(self):
         """
         Test fzf location with a known good location.
@@ -166,14 +183,14 @@ class FzfScenarioTest(ScenarioTest):
         cmd.cli_ctx = DummyCli()
         get_subscription_locations_mock.return_value = []
 
-        with self.assertRaises(CLIError):
+        with self.assertRaises(AzCLIError):
             self.cmd('fzf location')
 
     @ResourceGroupPreparer(name_prefix='cli_test_fzf', parameter_name='group_name',
                            parameter_name_for_location='group_location')
     def test_fzf_group(self, group_name, group_location):
         """
-        Test fzf group with a known good location.
+        Test fzf group with a known good group.
         """
         self.cmd('fzf group --filter={rg}', checks=[
             self.check('name', group_name),
@@ -181,6 +198,8 @@ class FzfScenarioTest(ScenarioTest):
             self.check('properties.provisioningState', 'Succeeded')
         ])
 
+    @ResourceGroupPreparer(name_prefix='cli_test_fzf', parameter_name='group_name',
+                           parameter_name_for_location='group_location')
     def test_fzf_group_not_found(self):
         """
         Test fzf group with a known bad location.
@@ -197,7 +216,7 @@ class FzfScenarioTest(ScenarioTest):
         cmd.cli_ctx = DummyCli()
         get_resource_groups_mock.return_value = []
 
-        with self.assertRaises(CLIError):
+        with self.assertRaises(AzCLIError) as err:
             self.cmd('fzf group')
 
     @mock.patch('azure.cli.core._profile.Profile.set_active_subscription', autospec=True)
@@ -248,5 +267,5 @@ class FzfScenarioTest(ScenarioTest):
         cmd.cli_ctx = DummyCli()
         load_subscriptions_mock.return_value = []
 
-        with self.assertRaises(CLIError):
+        with self.assertRaises(AzCLIError):
             self.cmd('fzf subscription')

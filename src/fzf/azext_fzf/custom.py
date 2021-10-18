@@ -18,8 +18,8 @@ import zipfile
 import requests
 
 from azure.cli.core.api import get_config_dir
+from azure.cli.core.azclierror import AzCLIError
 from knack.log import get_logger
-from knack.util import CLIError
 from tabulate import tabulate
 
 
@@ -49,6 +49,7 @@ def _fzf_get_install_dir(install_dir=None):
     """
     Return the installation directory and check if it's in the PATH. Default: get_config_dir().
     """
+
     if not install_dir:
         install_dir = get_config_dir()
     else:
@@ -80,24 +81,49 @@ def _fzf_get_release(version):
 
     LOGGER.info('Downloading fzf-bin releases JSON from "%s"', repos_url)
     try:
-        releases = requests.get(repos_url).json()
+        if os.getenv('GH_TOKEN'):
+            ghtoken = os.getenv('GH_TOKEN')
+        elif os.getenv('GITHUB_TOKEN'):
+            ghtoken = os.getenv('GITHUB_TOKEN')
+        else:
+            ghtoken = None
+
+        if ghtoken:
+            releases = requests.get(repos_url, headers={'Authorization': f'token {ghtoken}'}).json()
+        else: 
+            releases = requests.get(repos_url).json()
     except OSError as error:
-        raise CLIError(f'Connection error while attempting to download releases list: {error}') from error
+        raise AzCLIError(f'Connection error while attempting to download releases list: {error}') from error
 
     if version == 'latest':
-        release = releases[0]
+        if len(releases) > 0:
+            release = releases[0]
+        else:
+            releases_head = str(releases)[0:80]
+            raise AzCLIError(f'Failed to download fzf release info\n\nAPI output:\n{releases_head}')
     else:
         release = next((r for r in releases if r["tag_name"] == version), None)
 
     if not release:
-        raise CLIError(f'No release found for tag "{version}".')
+        raise AzCLIError(f'No release found for tag "{version}".')
     return release
 
 
-def fzf_install(version='latest', install_dir=None):
+def fzf_install(version='latest', install_dir=None, if_needed=False):
     """
     Install fzf, a command line fuzzy finder.
     """
+
+    if if_needed:
+        if shutil.which(_fzf_get_filename(), path=get_config_dir()):
+            executable_path = shutil.which(_fzf_get_filename(), path=get_config_dir())
+        else:
+            executable_path = shutil.which(_fzf_get_filename(), path=os.environ.get('PATH'))
+
+        if executable_path:
+            print('Found fzf, not installing.')
+            return
+
 
     arch = platform.machine()
     if arch == 'x86_64':
@@ -116,7 +142,7 @@ def fzf_install(version='latest', install_dir=None):
                     )
     file_url = next(release_iter, None)
     if not file_url:
-        raise CLIError(f'No download found for {_fzf_get_system()} {arch}')
+        raise AzCLIError(f'No download found for {_fzf_get_system()} {arch}')
 
     LOGGER.info('Found download url "%s"', file_url)
 
@@ -130,7 +156,7 @@ def fzf_install(version='latest', install_dir=None):
         compressed_file = io.BytesIO(file_response.content)
     except OSError as error:
         print("in except block")
-        raise CLIError(f'Connection error while attempting to download client: {error}') from error
+        raise AzCLIError(f'Connection error while attempting to download client: {error}') from error
 
     if _fzf_get_system() == "Windows":
         with zipfile.ZipFile(compressed_file) as zip_file:
@@ -141,6 +167,17 @@ def fzf_install(version='latest', install_dir=None):
 
     os.chmod(install_location,
              os.stat(install_location).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    
+def _fzf_get_path():
+    if shutil.which(_fzf_get_filename(), path=get_config_dir()):
+        executable_path = shutil.which(_fzf_get_filename(), path=get_config_dir())
+    else:
+        executable_path = shutil.which(_fzf_get_filename(), path=os.environ.get('PATH'))
+    if not executable_path:
+        raise AzCLIError('Couldn\'t find fzf. You can install it via `az fzf install`.')
+    LOGGER.info('Found fzf at %s.', executable_path)
+    return executable_path
 
 
 def _fzf(items, **kwargs):
@@ -194,14 +231,7 @@ def _fzf(items, **kwargs):
     print_query (switch)
     """
 
-    # Find FZF. Check for get_config_dir() first, then fall back to system path.
-    if shutil.which(_fzf_get_filename(), path=get_config_dir()):
-        executable_path = shutil.which(_fzf_get_filename(), path=get_config_dir())
-    else:
-        executable_path = shutil.which(_fzf_get_filename(), path=os.environ.get('PATH'))
-    if not executable_path:
-        raise CLIError('Couldn\'t find fzf. You can install it via `az fzf install`.')
-    LOGGER.info('Found fzf at %s.', executable_path)
+    executable_path = _fzf_get_path()
 
     # Transformation between python function arguments and fzf command line arguments.
     fzf_arguments = {
@@ -275,7 +305,8 @@ def fzf_group(cmd, fzf_filter=None, no_default=False):
     groups = get_resource_groups(cmd.cli_ctx)
 
     if not groups:
-        raise CLIError('No resource groups found.'
+        print('raising AzCLIError')
+        raise AzCLIError('No resource groups found.'
                        'If you are logged in, make sure groups exist'
                        'and you have access to them. If you are not logged'
                        'in, please run "az login" to access your account.')
@@ -305,7 +336,7 @@ def fzf_location(cmd, fzf_filter=None, no_default=False):
     locations = get_subscription_locations(cmd.cli_ctx)
 
     if not locations:
-        raise CLIError('No locations found.'
+        raise AzCLIError('No locations found.'
                        'If you are logged in, make sure a subscription exists'
                        'and you have access to it. If you are not logged'
                        'in, please run "az login" to access your account.')
@@ -335,7 +366,7 @@ def fzf_subscription(cmd, fzf_filter=None, no_default=False):
     subscriptions = load_subscriptions(cmd.cli_ctx, all_clouds=False, refresh=False)
 
     if not subscriptions:
-        raise CLIError('No subscriptions found.'
+        raise AzCLIError('No subscriptions found.'
                        'If you are logged in, make sure subscriptions exist'
                        'and you have access to them. If you are not logged'
                        'in, please run "az login" to access your account.')

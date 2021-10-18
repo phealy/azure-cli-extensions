@@ -39,16 +39,26 @@ helps['fzf install'] = """
     text: |-
         This command downloads and installs the current fzf binary from GitHub
         into your $AZURE_CONFIG_DIR (usually ~/.azure) for use of this extension.
+    parameters:
+        - name: --install-dir -i
+          type: string
+          short-summary: Path to install fzf to. This must be in your PATH!
+        - name: --version -v
+          type: string
+          short-summary: Version of fzf to install.
+        - name: --if-needed
+          type: bool
+          short-summary: Only install fzf if it's not in the path.
 """
 
 helps['fzf group'] = """
     type: command
     short-summary: select default resource group.
     parameters:
-        - name: -d
+        - name: --no-default -d
           type: bool
           short-summary: Don't change default; just search and return the object.
-        - name: -f
+        - name: --filter -f
           type: string
           short-summary: Filter string for fzf
           long-summary: |-
@@ -79,10 +89,10 @@ helps['fzf location'] = """
     type: command
     short-summary: select default location.
     parameters:
-        - name: -d
+        - name: --no-default -d
           type: bool
           short-summary: Don't change default; just search and return the object.
-        - name: -f
+        - name: --filter -f
           type: string
           short-summary: Filter string for fzf
           text: |-
@@ -116,10 +126,10 @@ helps['fzf subscription'] = """
     type: command
     short-summary: select default subscription.
     parameters:
-        - name: -d
+        - name: --no-default -d
           type: bool
           short-summary: Don't change default; just search and return the object.
-        - name: -f
+        - name: --filter -f
           type: string
           short-summary: Filter string for fzf
           text: |-
