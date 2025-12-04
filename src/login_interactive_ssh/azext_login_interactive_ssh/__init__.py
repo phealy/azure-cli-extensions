@@ -14,8 +14,9 @@ class Login_interactive_sshCommandsLoader(AzCommandsLoader):
         from azure.cli.core.commands import CliCommandType
         login_interactive_ssh_custom = CliCommandType(
             operations_tmpl='azext_login_interactive_ssh.custom#{}')
-        super(Login_interactive_sshCommandsLoader, self).__init__(cli_ctx=cli_ctx,
-                                                  custom_command_type=login_interactive_ssh_custom)
+        super(Login_interactive_sshCommandsLoader, self).__init__(
+            cli_ctx=cli_ctx,
+            custom_command_type=login_interactive_ssh_custom)
 
     def load_command_table(self, args):
         from azext_login_interactive_ssh.commands import load_command_table

@@ -11,6 +11,25 @@ from unittest.mock import patch
 from azure.cli.core.util import CLIError
 
 
+def _get_time_wait_timeout():
+    """
+    Get the TIME_WAIT timeout from the system
+
+    Returns:
+        int: Timeout in seconds (60 if unable to determine)
+    """
+    import os
+    try:
+        # On Linux, read from /proc/sys/net/ipv4/tcp_fin_timeout
+        if os.path.exists('/proc/sys/net/ipv4/tcp_fin_timeout'):
+            with open('/proc/sys/net/ipv4/tcp_fin_timeout', 'r') as f:
+                return int(f.read().strip())
+    except (OSError, ValueError):
+        pass
+    # Default TIME_WAIT timeout (2 * MSL, typically 60 seconds)
+    return 60
+
+
 def check_port_time_wait(port):
     """
     Check if a port is in TIME_WAIT state using psutil
@@ -25,7 +44,6 @@ def check_port_time_wait(port):
     """
     try:
         import psutil
-        import os
 
         # Check all network connections for TIME_WAIT state on this port
         for conn in psutil.net_connections(kind='tcp'):
@@ -33,20 +51,7 @@ def check_port_time_wait(port):
             if conn.laddr.port == port or (conn.raddr and conn.raddr.port == port):
                 # Check if it's in TIME_WAIT status
                 if conn.status == 'TIME_WAIT':
-                    # Try to get the TIME_WAIT timeout from system
-                    remaining = None
-                    try:
-                        # On Linux, read from /proc/sys/net/ipv4/tcp_fin_timeout
-                        if os.path.exists('/proc/sys/net/ipv4/tcp_fin_timeout'):
-                            with open('/proc/sys/net/ipv4/tcp_fin_timeout', 'r') as f:
-                                remaining = int(f.read().strip())
-                        else:
-                            # Default TIME_WAIT timeout (2 * MSL, typically 60 seconds)
-                            remaining = 60
-                    except Exception:
-                        # Fallback to default
-                        remaining = 60
-
+                    remaining = _get_time_wait_timeout()
                     return (True, remaining)
 
         return (False, None)
@@ -105,7 +110,7 @@ def validate_port(port):
 
             print(f'\nPort {port} is in TIME_WAIT state (from a recent login).', file=sys.stderr)
             print(f'Waiting up to {wait_seconds} seconds for the port to become available...', file=sys.stderr)
-            print(f'Press Ctrl+C to cancel and use a different port instead.\n', file=sys.stderr)
+            print('Press Ctrl+C to cancel and use a different port instead.\n', file=sys.stderr)
 
             try:
                 for remaining in range(wait_seconds, 0, -1):
@@ -124,11 +129,11 @@ def validate_port(port):
                 if validate_port_available(port):
                     print(f'Port {port} is now available!', file=sys.stderr)
                     return
-                else:
-                    raise CLIError(
-                        f'\nPort {port} is still not available after waiting. '
-                        f'Try using a different port (e.g., --port {port + 1}).'
-                    )
+
+                raise CLIError(
+                    f'\nPort {port} is still not available after waiting. '
+                    f'Try using a different port (e.g., --port {port + 1}).'
+                )
 
             except KeyboardInterrupt:
                 print('\n\nLogin cancelled by user.', file=sys.stderr)
@@ -152,18 +157,18 @@ def create_webbrowser_patches():
     Returns:
         List of patch objects
     """
-    def patched_open(url, new=0, autoraise=True):
+    def patched_open(url, new=0, autoraise=True):  # pylint: disable=unused-argument
         """Display URL in terminal instead of opening browser"""
-        print(f'\n{"="*70}')
+        print(f'\n{"=" * 70}')
         print('To sign in, use a web browser to open the page:')
-        print(f'{"="*70}')
+        print(f'{"=" * 70}')
         print(url)
-        print(f'{"="*70}\n')
+        print(f'{"=" * 70}\n')
         return True
 
-    def patched_get(using=None):
+    def patched_get(using=None):  # pylint: disable=unused-argument
         """Return a mock browser that displays URL"""
-        class MockBrowser:
+        class MockBrowser:  # pylint: disable=too-few-public-methods
             name = "url_display"
 
             def open(self, url, new=0, autoraise=True):
@@ -212,7 +217,7 @@ def login_ssh(cmd, oidc_redirect_port, tenant=None):
     if msal_http_cache.exists():
         try:
             msal_http_cache.unlink()
-        except Exception:
+        except (OSError, PermissionError):
             pass  # Ignore errors if we can't delete it
 
     # Disable MSAL HTTP cache to avoid future issues
